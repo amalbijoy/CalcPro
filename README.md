@@ -32,6 +32,8 @@ A feature-rich, colorful command-line calculator with multiple operation modes, 
 - **Screen clearing** and history management.
 
 ### Safety & Validation:
+- AST-based expression validation instead of unrestricted evaluation
+- Expression length and AST complexity limits to prevent pathological inputs
 - Input validation for numeric values.
 - Expression syntax validation.
 - Safe evaluation using restricted eval with allowed functions only.
