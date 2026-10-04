@@ -114,49 +114,61 @@ def cbrt(x):
     """Calculate cube root of x."""
     return x ** (1/3) if x >= 0 else -((-x) ** (1/3))
 
-def safe_eval(expr, allowed_names, max_depth=100):
-    """Safely evaluate basic mathematical expressions with custom function support."""
+def safe_eval(expr, allowed_names, max_depth=50, max_nodes=200):
+    """Evaluate a validated mathematical expression without changing process-global limits."""
     import ast
-    
-    # Set recursion limit to prevent DoS attacks
-    old_limit = sys.getrecursionlimit()
-    sys.setrecursionlimit(max_depth)
-    
-    try:
-        # Explicitly list all allowed AST node types
-        allowed_nodes = (
-            ast.Expression, ast.BinOp, ast.UnaryOp, ast.Load, ast.Call, ast.Name,
-            # Explicitly list operators
-            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.USub, ast.UAdd,
-            ast.FloorDiv,  # Floor division
-            # For Python 3.8+
-            ast.Constant,
-            # For Python < 3.8
-            ast.Num
-        )
-        
-        class SafeEval(ast.NodeVisitor):
-            def visit(self, node):
+
+    if len(expr) > 500:
+        raise ValueError("Expression is too long.")
+
+    allowed_nodes = (
+        ast.Expression, ast.BinOp, ast.UnaryOp, ast.Load, ast.Call, ast.Name,
+        ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.USub, ast.UAdd,
+        ast.FloorDiv, ast.Constant, ast.Num
+    )
+
+    class SafeEval(ast.NodeVisitor):
+        def __init__(self):
+            self.depth = 0
+            self.nodes = 0
+
+        def visit(self, node):
+            self.nodes += 1
+            if self.nodes > max_nodes:
+                raise ValueError("Expression is too complex.")
+            self.depth += 1
+            if self.depth > max_depth:
+                raise ValueError("Expression is too deeply nested.")
+            try:
                 if not isinstance(node, allowed_nodes):
                     raise ValueError(f"Unsafe node: {type(node).__name__}")
                 return super().visit(node)
-            
-            def visit_Name(self, node):
-                if node.id not in allowed_names:
-                    raise NameError(f"Unknown function or constant: {node.id}")
-            
-            def visit_Call(self, node):
-                if not isinstance(node.func, ast.Name) or node.func.id not in allowed_names:
-                    raise NameError(f"Unknown function: {getattr(node.func,'id',None)}")
-                self.generic_visit(node)
-        
-        tree = ast.parse(expr, mode='eval')
-        SafeEval().visit(tree)
-        return eval(compile(tree, filename="<ast>", mode="eval"), {"__builtins__": None}, allowed_names)
-    
-    finally:
-        # Restore original recursion limit
-        sys.setrecursionlimit(old_limit)
+            finally:
+                self.depth -= 1
+
+        def visit_Name(self, node):
+            if node.id not in allowed_names:
+                raise NameError(f"Unknown function or constant: {node.id}")
+
+        def visit_Constant(self, node):
+            if not isinstance(node.value, (int, float)):
+                raise ValueError("Only numeric constants are allowed.")
+
+        def visit_Call(self, node):
+            if not isinstance(node.func, ast.Name) or node.func.id not in allowed_names:
+                raise NameError(f"Unknown function: {getattr(node.func, 'id', None)}")
+            if len(node.args) > 2 or node.keywords:
+                raise ValueError("Only simple positional function arguments are allowed.")
+            self.generic_visit(node)
+
+    tree = ast.parse(expr, mode="eval")
+    SafeEval().visit(tree)
+
+    return eval(
+        compile(tree, filename="<ast>", mode="eval"),
+        {"__builtins__": None},
+        allowed_names,
+    )
 
 def evaluate_expression(expr):
     """Evaluate mathematical expression safely with extended functions."""
